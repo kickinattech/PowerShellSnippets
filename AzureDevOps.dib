@@ -1,0 +1,181 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"pwsh","items":[{"aliases":[],"languageName":"pwsh","name":"pwsh"}]}}
+
+#!markdown
+
+## Look For Release or Builds With PowerShell & Out If Inline or a file.
+
+#!pwsh
+
+######################################################################################################################
+# Purpose : Get list of builds and releases outputs PowerShell or Azure Powershell Task an dif inline or file
+# Provided as is use at own risk. Test Test and Test again before you go near you production env
+#
+# Created By Russell Dyas
+######################################################################################################################
+
+write-host "Get List Of Releases & Builds"
+
+$AzureDevOp ="{replacewithyourid}"
+$Releases = ""
+$Build = ""
+$OrganizationName = "russdev"
+$ProjectName =@("TestKanban")
+write-host "Projects $ProjectName"
+$AzureDevOpsAuthenicationHeader = @{Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($AzureDevOps)")) }
+
+$pipleinedetailsFull = New-Object System.Data.DataTable
+[void]$pipleinedetailsFull.Columns.Add("Name")
+[void]$pipleinedetailsFull.Columns.Add("BuildFormat")
+[void]$pipleinedetailsFull.Columns.Add("Project")
+
+write-host "Get Pipeline Details"
+
+foreach ($Project in $ProjectName)
+{
+
+    write-host "Running Project $Project"
+    $OrgUri = "https://dev.azure.com/$($OrganizationName)/$($Project)/" 
+    $PipleineListUri = $OrgUri + '_apis/pipelines?api-version=7.1-preview.1'
+   # write-host $PipleineListUri
+    $Details=(Invoke-RestMethod -Uri $PipleineListUri -Method get -Headers $AzureDevOpsAuthenicationHeader).value
+    Write-Host "Pipeline count is" 
+      $Details.count
+    
+}
+
+   foreach ($item in $Details) {
+
+       $PipleineDetailsUri = $OrgUri + '_apis/pipelines/' + $item.id + '?api-version=7.1-preview.1'
+       # write-host "PipleineDetailsUri 2 is $PipleineDetailsUri "
+
+       $pipleinedetails=Invoke-RestMethod -Uri $PipleineDetailsUri -Method get -Headers $AzureDevOpsAuthenicationHeader
+       #$pipleinedetailsConverted =  Invoke-WebRequest -Uri $PipleineDetailsUri -Method get -Headers $AzureDevOpsAuthenicationHeader 
+
+    $StringTocheckFor ="ScriptType`": `"InlineScript`""
+    #write-host $StringTocheckFor
+    
+    
+    $CheckBuld=$pipleinedetails.configuration.designerJson.process.phases
+    foreach ($checkitem in $CheckBuld)
+    {
+
+        foreach ($checktask in $checkitem.steps)
+        {
+           
+           if ($checktask.displayName.ToString() -like "*PowerShell*")
+           {
+            $pipleinedetails.configuration.designerJson.Name + "," + $checktask.displayName.ToString() + "," + $checktask.inputs.targetType + "," + $checktask.inputs.ScriptType
+           }
+           
+        }
+    }
+
+}
+
+write-host "Getting Release Details"
+
+$OrgUri = "https://vsrm.dev.azure.com/$($OrganizationName)/$($Project)/" 
+$ReleaseDefList = $OrgUri + '_apis/release/definitions?api-version=6.0'
+write-host "ReleaseDefList is $ReleaseDefList "
+$pipleinedetails_releasedef=Invoke-RestMethod -Uri $ReleaseDefList -Method get -Headers $AzureDevOpsAuthenicationHeader
+
+
+foreach ($ReleaseItem in $pipleinedetails_releasedef.value)
+{
+
+$ReleaseDefUri = $OrgUri + '_apis/release/definitions/' + $ReleaseItem.id + '/revisions/' + $ReleaseItem.revision
+#write-host "ReleaseDefUri 3 is $ReleaseDefUri "
+$pipleinedetails_releaseDetails=Invoke-RestMethod -Uri $ReleaseDefUri -Method get -Headers $AzureDevOpsAuthenicationHeader
+foreach ($ReleaseEnvItem in $pipleinedetails_releaseDetails.environments)
+{
+
+    foreach ($ReleasedeployPhasesitem in $ReleaseEnvItem.deployPhases)
+    {
+
+        
+        foreach ($releaseItemDeploy in $ReleasedeployPhasesitem.workflowTasks)
+        {
+
+            
+              if ($releaseItemDeploy.name -like "*PowerShell*")
+           {
+            $ReleaseItem.name + "," + $releaseItemDeploy.name + "," + $releaseItemDeploy.inputs.targetType
+            #$pipleinedetails.configuration.designerJson.Name + "," + $checktask.displayName.ToString() + "," + $checktask.inputs.targetType + "," + $checktask.inputs.ScriptType
+           }
+           
+        }
+    }
+
+
+}
+#https://vsrm.dev.azure.com/russdev/TestKanban////
+}
+
+write-host "finshed"
+
+#!markdown
+
+## Look For Release or Builds With PowerShell & Out If Inline or a file.
+
+#!pwsh
+
+######################################################################################################################
+# Purpose : When ran as Azure DevOps admin the script will get 
+#           list of all PAT tokens in all users accounts (apart
+#           from the secrets)
+# Provided as is use at own risk. Test Test and Test again before you go near you production env
+#
+# Requirements : Azure Command Line Tool (AZ). 
+#
+# Notes : The script uses az to login into Azure DevOps as
+#         per details at 
+# https://www.dylanberry.com/2021/02/21/how-to-get-a-pat-personal-access-token-for-azure-devops-from-the-az-cli/
+# Created By Russell Dyas -  https://gist.github.com/kickinattech/188f860277ec86634639188fdc80a05c
+######################################################################################################################
+
+$PSStyle.OutputRendering = 'Host'
+
+write-host "Login As User That Is Azure DevOps Admin"
+
+az login
+write-host "Get Users From Azure DevOps"
+$azureDevopsResourceId = "499b84ac-1321-427f-aa17-267ca6975798"
+$token = az account get-access-token --resource $azureDevopsResourceId | ConvertFrom-Json
+$authValue = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(":" + $token.accessToken))
+
+$headers = @{
+    Authorization = "Basic $authValue";
+    'X-VSS-ForceMsaPassThrough' = $true
+}
+
+$organization = "org"
+$UserAPIRunUrl = "https://vssps.dev.azure.com/$organization/_apis/graph/users?api-version=5.1-preview.1"
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$Users=Invoke-RestMethod -Uri $UserAPIRunUrl -Method GET -Headers $headers -ContentType 'application/json' -Verbose # | ConvertFrom-Json
+
+$CombinedPatList=@()
+foreach ($User in $users.value) {
+    $displayname= $user.displayname.ToString()
+    $descriptor = $user.descriptor.ToString()
+    $principalName = $User.principalName
+    $mailaddress = $User.mailAddress
+    write-host "User Name: $displayname" 
+    $UsersPATAPIRunUrl = "https://vssps.dev.azure.com/$organization/_apis/tokenadmin/personalaccesstokens/$descriptor"
+    if ($User.domain -notlike "*LOCAL AUTHORITY*") {
+        $UserPATTokensList = Invoke-RestMethod -Uri $UsersPATAPIRunUrl -Method GET -Headers $headers -ContentType 'application/json'
+    
+        write-host "Getting PAT keys for user account $displayname"
+        $UserPATTokensList.value | Add-Member -NotePropertyName "AzurePrincipalName" -NotePropertyValue $principalName
+        $UserPATTokensList.value | Add-Member -NotePropertyName "AzureMailAddress" -NotePropertyValue $mailaddress
+        $UserPATTokensList.value | Add-Member -NotePropertyName "AzureDisplayName" -NotePropertyValue $displayname
+        
+        $NewPat=$UserPATTokensList.value
+        $CombinedPatList+=$NewPat
+        
+    }
+}
+Write-Host "Writing Details To $PSScriptRoot\pat_details.log"
+$CombinedPatList | Out-File -FilePath "$PSScriptRoot\pat_details.log"
